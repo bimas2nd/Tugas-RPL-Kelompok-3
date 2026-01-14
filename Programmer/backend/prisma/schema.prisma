@@ -1,0 +1,158 @@
+// schema.prisma
+
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+}
+
+// --- ENUMS (Pilihan Status/Tipe) ---
+
+enum Role {
+  WARGA
+  ADMIN
+  RW
+}
+
+enum TransactionType {
+  SETOR // Representasi 'transaksi (setor)'
+  TARIK // Representasi 'transaksi (tarik)'
+}
+
+enum TransactionStatus {
+  PENDING
+  VALIDATED // Representasi node 'validasi'
+  REJECTED
+}
+
+enum InvoiceStatus {
+  UNPAID
+  PAID
+  CANCELLED
+}
+
+// --- MODELS ---
+
+model User {
+  id            String      @id @default(uuid())
+  email         String      @unique
+  password      String
+  role          Role
+  refreshToken  String?     @unique 
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Relasi ke profil spesifik (Opsional, tergantung kebutuhan detail)
+  wargaProfile Warga?
+  adminProfile Admin?
+  rwProfile    Rw?
+}
+
+model Warga {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  
+  nama   String
+  alamat String?
+  nik    String? @unique
+  url    String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  // Warga melakukan transaksi
+  saldo Decimal @default(0) @db.Decimal(12, 2)
+  transaksi Transaksi[] 
+  
+  // Warga menerima invoice
+  invoices  Invoice[]
+}
+
+model Admin {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  
+  nama   String
+  url    String?
+
+  // Admin melakukan validasi transaksi
+  transaksiDivalidasi Transaksi[] @relation("AdminValidator")
+  
+  // Admin mengatur setting transaksi
+  settings            SettingTransaksi[]
+}
+
+model Rw {
+  id     String @id @default(uuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+  
+  nama    String
+  wilayah String? // Contoh: RW 05
+  url     String?
+
+  // RW mengirim/membuat invoice
+  invoicesDibuat Invoice[] @relation("RwCreator")
+}
+
+model Transaksi {
+  id            String   @id @default(uuid())
+  jumlah        Decimal  @db.Decimal(10, 2)
+
+  beratKg       Decimal? @db.Decimal(10, 2)
+
+  tipe          TransactionType
+  status        TransactionStatus @default(PENDING)
+
+  tanggal       DateTime @default(now())
+  validatedAt   DateTime?
+
+  catatan       String? 
+  url           String?
+
+  saldoSebelum  Decimal? @db.Decimal(12, 2)
+  saldoSesudah  Decimal? @db.Decimal(12, 2)
+
+  wargaId       String
+  warga         Warga    @relation(fields: [wargaId], references: [id])
+
+  adminId       String?
+  admin         Admin?   @relation("AdminValidator", fields: [adminId], references: [id])
+}
+
+
+
+model SettingTransaksi {
+  id          String   @id @default(uuid())
+  key         String   @unique // Contoh: 'MIN_SETOR', 'MAX_TARIK'
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+
+  // Siapa admin yang mengubah setting
+  adminId     String
+  admin       Admin  @relation(fields: [adminId], references: [id])
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  judul         String        // Contoh: "Iuran Kebersihan Mei"
+  jumlah        Decimal       @db.Decimal(10, 2)
+  status        InvoiceStatus @default(UNPAID)
+  tanggalTerbit DateTime      @default(now())
+  jatuhTempo    DateTime?
+
+  // Relasi: Dibuat oleh RW (Node 'kirim_invoice')
+  rwId          String
+  rw            Rw      @relation("RwCreator", fields: [rwId], references: [id])
+
+  // Relasi: Ditujukan untuk Warga
+  wargaId       String
+  warga         Warga   @relation(fields: [wargaId], references: [id])
+  
+  // Node 'cek_invoice' adalah aksi query (read) ke tabel ini
+}
